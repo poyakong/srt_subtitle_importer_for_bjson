@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>SRT字幕导入工具 by 破亚空</title>
+		<style>
+			/* 沿用原始CSS样式并微调 */
+			body {
+				font-family: 'Microsoft YaHei', sans-serif;
+				margin: 20px;
+				background-color: #f5f5f5;
+			}
+			#main-container {
+				display: flex;
+				flex-direction: column;
+			}
+			.container {
+				width: 100%;
+				max-width: 800px;
+				margin: 0 auto;
+				background: white;
+				padding: 30px;
+				border-radius: 10px;
+				box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+			}
+			h1.panel-title {
+				text-align: center;
+				color: #333;
+				margin-bottom: 30px;
+			}
+			.button-group {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 10px;
+				margin-bottom: 20px;
+			}
+			button {
+				padding: 12px 20px;
+				border: none;
+				border-radius: 5px;
+				cursor: pointer;
+				font-size: 14px;
+				font-weight: bold;
+				transition: all 0.3s ease;
+			}
+			button:enabled {
+				background-color: #007bff;
+				color: white;
+			}
+			button:enabled:hover {
+				background-color: #0056b3;
+				transform: translateY(-2px);
+			}
+			button:disabled {
+				background-color: #ccc;
+				color: #666;
+				cursor: not-allowed;
+			}
+			.file-input {
+				display: none;
+			}
+			/* 状态消息容器样式 */
+			.status-container {
+				margin-top: 15px;
+				display: flex;
+				flex-direction: column;
+				gap: 10px;
+			}
+			/* 单个状态消息样式 */
+			.status-message {
+				padding: 15px;
+				border-radius: 5px;
+				font-weight: bold;
+			}
+			.status-message.success { background-color: #d4edda; color: #155724; }
+			.status-message.warning { background-color: #ede6d4; color: #c57600; }
+			.status-message.error { background-color: #f8d7da; color: #721c24; }
+			.status-message.info { background-color: #d1ecf1; color: #0c5460; }
+			.log-area {
+				background-color: #f8f9fa;
+				border: 1px solid #dee2e6;
+				border-radius: 5px;
+				padding: 15px;
+				margin-top: 20px;
+				height: 200px;
+				width: calc(100% - 30px); /* Adjust width to account for padding */
+				overflow-y: auto;
+				font-family: monospace;
+				font-size: 12px;
+				white-space: pre-wrap;
+				line-height: 2;
+				resize: vertical;
+			}
+			/* process-wrapper 和 children-wrapper 已被包含在 template 中 */
+			.process-wrapper {
+				display: flex;
+				flex-direction: column;
+				gap: 15px;
+				width: 100%;
+			}
+			.children-wrapper {
+				display: flex;
+				flex-direction: column;
+			}
+		</style>
+	</head>
+	<body>
+		<!-- 主应用容器 -->
+		<div id="main-container"></div>
+
+		<!-- 统一的应用面板模板 (已更新) -->
+		<template id="app-panel-template">
+			<div class="process-wrapper">
+				<div class="container">
+					<h1 class="panel-title">应用标题</h1>
+					<div class="button-group"></div>
+					<div class="file-input-container"></div>
+					<div class="status-container"></div>
+					<textarea class="log-area" readonly></textarea>
+				</div>
+				<div class="children-wrapper"></div>
+			</div>
+		</template>
+
+		<template id="app-panel-template-log-area">
+			<div class="process-wrapper">
+				<div class="container">
+					<h1 class="panel-title">应用标题</h1>
+					<div class="button-group"></div>
+					<div class="file-input-container"></div>
+					<div class="status-container"></div>
+					<div class="log-area" readonly></div>
+				</div>
+				<div class="children-wrapper"></div>
+			</div>
+		</template>
+
+		<template id="app-panel-template-text-area">
+			<div class="process-wrapper">
+				<div class="container">
+					<h1 class="panel-title">应用标题</h1>
+					<div class="button-group"></div>
+					<div class="file-input-container"></div>
+					<div class="status-container"></div>
+					<textarea class="log-area" readonly></textarea>
+				</div>
+				<div class="children-wrapper"></div>
+			</div>
+		</template>
+
+<script>
+// =======================================================================
+// 共享工具函数
+// =======================================================================
+function deepCopy(obj) {
+	return JSON.parse(JSON.stringify(obj));
+}
+
+// =======================================================================
+// 导入器类 (ImportApp) - 完全独立的 Web Component
+// =======================================================================
+class ImportApp extends HTMLElement {
+	constructor() {
+		super(); // 必须调用父类构造函数
+
+		// 在 Web Components 构造函数中不允许使用 appendChild 方法添加模板内容
+		// 根据 Web Components 规范，构造函数中不能直接操作 DOM。
+		
+		// 只保存模板引用，不直接操作DOM
+		// this.templateId = 'app-panel-template';
+		
+		// 初始化状态
+		this.state = {
+			json_file_name_current: '',
+			json_file_name_previous: '',
+			json_file_content: null,
+			json_result_content: null,
+			srt_file_name_current: '',
+			srt_file_name_previous: '',
+			srt_file_content: [],
+			subtitle_template: { track_template: null, clip_template: null },
+			json_existing_m_id_s: null
+		};
+	}
+	
+	// 使用 connectedCallback 来执行初始化逻辑
+	connectedCallback() {
+		// 在这里执行DOM操作
+		
+		document.getElementById('app-panel-template-log-area') // 如果模板存在，则使用模板内容
+		? this.appendChild(document.getElementById('app-panel-template-log-area').content.cloneNode(true)) 
+		: this.innerHTML = `
+		<div class="process-wrapper">
+			<div class="container">
+				<h1 class="panel-title">应用标题</h1>
+				<div class="button-group"></div>
+				<div class="file-input-container"></div>
+				<div class="status-container"></div>
+				<div class="log-area" readonly></div>
+				</div>
+			<div class="children-wrapper"></div>
+		</div>`;
+		
+		// 查找并保存常用的UI元素引用
+		this.ui = {
+			container: this.querySelector('.container'),
+			title: this.querySelector('.panel-title'),
+			log: this.querySelector('.log-area'),
+			buttonGroup: this.querySelector('.button-group'),
+			fileInputContainer: this.querySelector('.file-input-container'),
+			statusContainer: this.querySelector('.status-container'),
+			childrenWrapper: this.querySelector('.children-wrapper')
+		};
+
+		// 从元素的attribute获取标题并设置
+		if (this.hasAttribute('app-title')) {
+			this.ui.title.textContent = this.getAttribute('app-title');
+		}
+
+		this.initUI();
+		// 初始化日志
+		this.log('SRT字幕导入工具');
+		this.log('Build: 20250621, Author: poyakong');
+		this.log('✅工具启动成功');
+		this.ui.log.innerHTML += `[${(new Date()).toLocaleTimeString()}] ⚠️须知：使用之前，请务必观看教程<a href="https://www.bilibili.com/video/BV1KUfcYKEaR/" target="_blank">BV123456</a>\n`;
+	}
+
+	initUI() {
+		// 以编程方式创建和绑定按钮
+		this.ui.buttonGroup.innerHTML = `
+			<button class="import-json-btn">导入JSON文件</button>
+			<button class="import-srt-btn" disabled>导入SRT字幕</button>
+			<button class="generate-btn" disabled>生成字幕到JSON中</button>
+			<button class="copy-btn" disabled>复制JSON到剪贴板</button>
+			<button class="download-btn" disabled>下载JSON文件</button>
+		`;
+		
+		// 以编程方式创建文件输入
+		this.ui.fileInputContainer.innerHTML = `
+			<input type="file" class="file-input json-file-input" accept=".json">
+			<input type="file" class="file-input srt-file-input" accept=".srt">
+		`;
+
+		// text-area 不会改变鼠标光标样式
+		// this.ui.log.style.cursor = 'default';
+
+		// 绑定事件监听器
+		this.querySelector('.import-json-btn').addEventListener('click', () => this.querySelector('.json-file-input').click());
+		this.querySelector('.import-srt-btn').addEventListener('click', () => this.querySelector('.srt-file-input').click());
+		this.querySelector('.generate-btn').addEventListener('click', () => this.generateSubtitles());
+		this.querySelector('.copy-btn').addEventListener('click', () => this.copyToClipboard());
+		this.querySelector('.download-btn').addEventListener('click', () => this.downloadJson());
+		
+		this.querySelector('.json-file-input').addEventListener('change', (event) => this.json_content_import(event));
+		this.querySelector('.srt-file-input').addEventListener('change', (event) => this.srt_content_import(event));
+	}
+	
+	// 移除自身并释放资源
+	kill() {
+		this.killChildren();
+		this.remove(); // 从DOM中移除元素
+	}
+
+	// 在children-wrapper内新建component
+	createChildren(AppComponentClass, title, initialData = {}) {
+		const childComponent = new AppComponentClass();
+		childComponent.setAttribute('app-title', title);
+		childComponent.initialData = initialData; // 直接通过属性传递数据
+		this.ui.childrenWrapper.appendChild(childComponent);
+		return childComponent;
+	}
+	
+	// 释放children-wrapper内的所有资源
+	killChildren() {
+		Array.from(this.ui.childrenWrapper.children).forEach(child => {
+			if (typeof child.kill === 'function') {
+				child.kill();
+			} else {
+				child.remove();
+			}
+		});
+		this.ui.childrenWrapper.innerHTML = '';
+	}
+	
+	log(message) {
+		const timestamp = (new Date()).toLocaleTimeString();
+		this.ui.log.innerHTML += `[${timestamp}] ${message}\n`;
+		this.ui.log.scrollTop = this.ui.log.scrollHeight;
+		console.log(`[${this.constructor.name}] ${message}`);
+	}
+
+	showStatus(message, type = 'info') {
+		const statusElement = document.createElement('div');
+		statusElement.className = `status-message ${type}`;
+		statusElement.textContent = message;
+		this.ui.statusContainer.appendChild(statusElement);
+		setTimeout(() => { statusElement.remove(); }, 5000);
+	}
+	 
+	// 用户风险确认
+	user_acknowledge_confirm(){
+		if (!confirm("⚠️注意：本操作不可逆\n\n在执行操作前，请务必完整备份了你的项目文件(Bcut Drafts)\n\n⚠️重要：备份文件不允许被保存在Bcut Drafts文件夹内\n\n因为必剪会定时清理Bcut Drafts内所有不相关的文件\n请务必将备份保存在单独的位置，例如硬盘根目录下\n\n⚠️确认：您确认已手动备份文件到安全的位置？")){
+			return false;
+		}
+		if (!confirm("⚠️注意：本工具为第三方工具，不能保证绝对的兼容性\n\n⚠️协议：因为修改JSON文件导致的软件闪退，数据损坏，工程丢失等所有问题，本工具概不负责\n\n⚠️确认：您已了解并确认风险？")){
+			return false;
+		}
+		return true
+	}
+
+	json_content_import(event) {
+		const file = event.target.files[0];
+		if (!file) return;
+
+		this.log('正在读取工程' + file.name);
+
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			try {
+				this.state.json_file_content = JSON.parse(e.target.result);
+				
+				// 查找"程序定位模板字幕"
+				let found = false;
+				if (this.state.json_file_content.tracks) {
+					for (const track of this.state.json_file_content.tracks) {
+						if (track.clips) {
+							for (const clip of track.clips) {
+								if (clip.AssetInfo && clip.AssetInfo.content === "程序定位模板字幕") {
+									this.state.subtitle_template.track_template = track;
+									this.state.subtitle_template.clip_template = clip;
+									// 防止用户设置了voiceid (如果不存在，js会自动创建attachVoiceId，所以这条指令是安全的)
+									this.state.subtitle_template.clip_template.attachVoiceId = 0;
+									found = true; 
+									break;
+								}
+							}
+						}
+						if (found) break;
+					}
+				}
+
+				if (!found) {
+					this.showStatus('程序定位模板字幕 查找失败\n请先在项目中创建一个字幕，且重命名为 ➡️ 程序定位模板字幕', 'error');
+					this.log('❌定位字幕 查找失败');
+					this.log('请先在项目中创建一个字幕，且重命名为 ➡️ 程序定位模板字幕');
+					this.state.json_file_content = null; 
+					return;
+				}
+
+				this.showStatus('✅JSON文件读取成功！已读取字幕模板', 'success');
+				this.log(`✅JSON文件读取成功，模板位置: trackIndex ${this.state.subtitle_template.track_template.trackIndex}`);
+				
+				this.state.json_file_name_current = file.name;
+				this.querySelector('.import-srt-btn').disabled = false; // 更新按钮状态
+
+			} catch (error) { 
+				this.showStatus('❌JSON文件格式错误：' + error.message, 'error');
+				this.log('❌JSON解析错误: ' + error.message);
+				this.state.json_file_content = null;
+			} finally { 
+				// 重置 input 元素的 value 属性，兼容同名文件重复读取
+				event.target.value = '';
+			}
+		};
+		reader.readAsText(file);
+	}
+	
+	parseTimeToMs(timeStr) {
+		const isNegative = timeStr.startsWith('-'), cleanTimeStr = isNegative ? timeStr.substring(1) : timeStr;
+		const parts = cleanTimeStr.split(','), timeParts = parts[0].split(':');
+		const h = parseInt(timeParts[0])||0, m=parseInt(timeParts[1])||0, s=parseInt(timeParts[2])||0, msVal=parseInt(parts[1])||0;
+		return (isNegative ? -1 : 1) * ((h * 3600 + m * 60 + s) * 1000 + msVal);
+	}
+
+	srt_content_import(event) {
+		const file = event.target.files[0];
+		if (!file) return;
+
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			try {
+				// 统一换行符为\n
+				const srtText = e.target.result.replace(/\r\n|\r/g, '\n');
+				const subtitles = [], blocks = srtText.trim().split(/\n\s*\n/);
+				let hasNegativeTime = false;
+				
+				blocks.forEach((block, index) => {
+					// 改进后的正则表达式，匹配序号、时间戳和字幕文本，包括末尾换行
+					const matches = block.match(new RegExp("^(\\d+)\\n(-?\\d{2}:\\d{2}:\\d{2},\\d{3})\\s*-->\\s*(-?\\d{2}:\\d{2}:\\d{2},\\d{3})\\n([\\s\\S]*?)(?:\\n)?$"));
+					if (!matches) {
+						this.log(`❌解析错误:[${index + 1}] 字幕格式错误`);
+						return;
+					}
+					
+					const [, sequenceNumber, startTimeStr, endTimeStr, subtitleText] = matches;
+					const startTime = this.parseTimeToMs(startTimeStr);
+					const endTime = this.parseTimeToMs(endTimeStr);
+					const duration = endTime - startTime;
+					
+					if (startTime < 0 || endTime < 0) hasNegativeTime = true;
+					if (duration <= 0) {
+						this.log(`❌解析错误:[${index + 1}] 字幕时间轴错误`);
+						return;
+					}
+					
+					subtitles.push({ 
+						text: subtitleText.trim(), 
+						start_time: startTime, 
+						end_time: endTime, 
+						duration: duration, 
+						addable: (startTime >= 0 && duration >= 0) 
+					});
+					
+					// 报告成功解析的字幕
+					// 20250622 很变态的一行代码，可惜用不上
+					// ${subtitleText.length > 8 ? subtitleText.substring(0, 8) + '...' : subtitleText}
+					this.log(`解析成功:[${sequenceNumber}] ${startTimeStr}: \n${subtitleText}`);
+				});
+				
+				if (hasNegativeTime) {
+					this.showStatus('⚠️检测到负数的时间轴，请检查字幕文件', 'warning');
+					this.log('⚠️检测到负数的时间轴，请检查字幕文件');
+				}
+				
+				this.state.srt_file_content = subtitles;
+
+				this.showStatus(`✅SRT字幕读取完成！读取了${subtitles.length}/${blocks.length}个字幕`, 'success');
+				this.log(`✅SRT字幕读取完成！读取了${subtitles.length}/${blocks.length}个字幕`);
+
+				if (blocks.length !== subtitles.length) {
+					this.showStatus(`⚠️SRT文件解析警告：字幕数量不匹配`, 'error');
+					this.log(`⚠️SRT文件解析警告：有${blocks.length - subtitles.length}个字幕未能被正确解析`);
+				}
+
+				this.querySelector('.generate-btn').disabled = false; // 更新按钮状态
+
+			} catch (error) { 
+				this.showStatus('❌SRT文件解析错误：' + error.message, 'error');
+				this.log('❌SRT解析错误: ' + error.message);
+			} finally { 
+				// 重置 input 元素的 value 属性，兼容同名文件重复读取
+				event.target.value = '';
+			}
+		};
+		reader.readAsText(file);
+	}
+
+	findUniqueId(baseId, iterator = 0) {
+		let newId = baseId + iterator;
+		while (this.state.json_existing_m_id_s.has(newId)) {
+			iterator++;
+			newId = baseId + iterator;
+		}
+		return newId;
+	}
+	
+	getAllMIds(jsonData) {
+		const mIds = new Set();
+		function traverse(obj) { 
+			if (typeof obj === 'object' && obj !== null) { 
+				if (obj.m_id) {
+					mIds.add(obj.m_id);
+				}
+				for (const key in obj) {
+					traverse(obj[key]);
+				}
+			} 
+		}
+		traverse(jsonData); 
+		return mIds;
+	}
+	
+	generateSubtitles() {
+		// 检查是否重复生成
+		if (this.state.json_file_name_current === this.state.json_file_name_previous && confirm("⚠️警告：您已为相同的文件生成过字幕，再次生成会导致字幕复制\n您确定仍然要再次生成吗？") === false) {
+			return;
+		}
+
+		// main funtion
+		try {
+			// 深拷贝模板轨道并添加新的track
+			this.state.json_result_content = deepCopy(this.state.json_file_content);
+			const newTrack = deepCopy(this.state.subtitle_template.track_template);
+
+			// 清空clips
+			newTrack.clips = [];
+
+			// [Edge Case] 当用户错误地使用了MiddleTrack，虽然理论上是不可能的
+			if (newTrack.MiddleTrack) {
+				newTrack.MiddleTrack = false;
+			}
+			
+			// 获取字幕模板
+			const templateClip = this.state.subtitle_template.clip_template;
+			// 获取所有现有的m_id
+			this.state.json_existing_m_id_s = this.getAllMIds(this.state.json_result_content);
+			// 获取模板m_id
+			const baseMId = templateClip.m_id || "1714550534688";
+			
+			// 为每个SRT字幕生成clip
+			this.state.srt_file_content.forEach((subtitle, iterator) => {
+				if (!subtitle.addable) return;
+
+				const newClip = deepCopy(templateClip);
+
+				// 设置字幕属性
+				newClip["30021"] = subtitle.start_time;
+				newClip["30012"] = subtitle.duration;
+				newClip["AssetInfo"]["content"] = subtitle.text;
+				newClip["AssetInfo"]["duration"] = subtitle.duration;
+				newClip["inPoint"] = subtitle.start_time;
+				newClip["outPoint"] = subtitle.end_time;
+				newClip["originTrimOut"] = subtitle.duration;
+				newClip["trimOut"] = subtitle.duration;
+
+				// 设置字幕m_id
+				newClip["m_id"] = this.findUniqueId(baseMId, iterator);
+				this.state.json_existing_m_id_s.add(newClip["m_id"]);
+
+				// 字幕设置完成，添加到轨道中
+				newTrack.clips.push(newClip);
+			});
+
+			// 将新轨道插入到开头
+			this.state.json_result_content.tracks.unshift(newTrack);
+			
+			// 重新生成所有轨道的 trackIndex
+			this.state.json_result_content.tracks.forEach((track, index) => {
+				track.trackIndex = index + 1;
+			});
+			
+			this.showStatus(`✅字幕生成成功！共生成${newTrack.clips.length}个字幕片段`, 'success');
+			this.log(`✅字幕生成成功！共生成${newTrack.clips.length}个字幕片段`);
+			
+			// 启用导出按钮
+			this.querySelector('.copy-btn').disabled = false;
+			this.querySelector('.download-btn').disabled = false;
+
+			// 记录文件名以备下次检查
+			this.state.json_file_name_previous = this.state.json_file_name_current;
+		} catch (error) { 
+			this.showStatus('❌生成字幕时出错：' + error.message, 'error'); 
+			this.log('❌生成字幕错误: ' + error.message);
+		}
+	}
+
+	async copyToClipboard() { 
+		if (!this.state.json_result_content) {
+			return this.showStatus('❌没有可复制的内容', 'error');
+		}
+		if (!this.user_acknowledge_confirm()) {
+			return this.showStatus('⚠️用户取消操作', 'warning');
+		}
+		try {
+			const jsonString = JSON.stringify(this.state.json_result_content, null, 2);
+			await navigator.clipboard.writeText(jsonString);
+			this.showStatus('✅JSON已复制到剪贴板', 'success');
+			this.log('✅JSON内容已复制到剪贴板');
+		} catch (e) {
+			this.showStatus('❌复制到剪贴板失败：' + e.message, 'error');
+			this.log('❌复制失败: ' + e.message);
+		}
+	}
+
+	downloadJson() { 
+		if (!this.state.json_result_content) {
+			return this.showStatus('❌没有可下载的内容', 'error');
+		}
+		if (!this.user_acknowledge_confirm()) {
+			return this.showStatus('⚠️用户取消操作', 'warning');
+		}
+		try {
+			const jsonString = JSON.stringify(this.state.json_result_content, null, 2);
+			const blob = new Blob([jsonString], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = this.state.json_file_name_current;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+			this.showStatus(`➡️JSON文件下载`, 'success');
+			this.log(`➡️JSON文件下载`);
+		} catch (e) {
+			this.showStatus('❌下载JSON文件失败：' + e.message, 'error');
+			this.log('❌下载JSON文件失败: ' + e.message);
+		}
+	}
+}
+
+// =======================================================================
+// 导出器类 (ExportApp) - 完全独立的 Web Component
+// =======================================================================
+class ExportApp extends HTMLElement {
+	constructor() {
+		super();
+		
+		this.state = {
+			json_file_name_current: '',
+			json_file_content: null,
+			subtitles_with_track_index: [],
+		};
+	}
+	
+	connectedCallback() {
+
+		// 使用默认模板或自定义模板
+		document.getElementById('app-panel-template-log-area') // 如果模板存在，则使用模板内容
+		? this.appendChild(document.getElementById('app-panel-template-log-area').content.cloneNode(true)) 
+		: this.innerHTML = `
+		<div class="process-wrapper">
+			<div class="container">
+				<h1 class="panel-title">应用标题</h1>
+				<div class="button-group"></div>
+				<div class="file-input-container"></div>
+				<div class="status-container"></div>
+				<textarea class="log-area" readonly></textarea>
+				</div>
+			<div class="children-wrapper"></div>
+		</div>`;
+
+		this.ui = {
+			container: this.querySelector('.container'),
+			title: this.querySelector('.panel-title'),
+			log: this.querySelector('.log-area'),
+			buttonGroup: this.querySelector('.button-group'),
+			fileInputContainer: this.querySelector('.file-input-container'),
+			statusContainer: this.querySelector('.status-container'),
+			childrenWrapper: this.querySelector('.children-wrapper')
+		};
+
+		if (this.hasAttribute('app-title')) {
+			this.ui.title.textContent = this.getAttribute('app-title');
+		}
+		this.initUI();
+		this.log('SRT字幕扫描工具');
+		this.log('Build: 20250622, Author: poyakong');
+		this.log('✅工具启动成功');
+	}
+
+	initUI() {
+		this.ui.buttonGroup.innerHTML = `<button class="import-json-btn">导入JSON文件</button>`;
+		this.ui.fileInputContainer.innerHTML = `<input type="file" class="file-input json-file-input" accept=".json">`;
+
+		// text-area 不会改变鼠标光标样式
+		// this.ui.log.style.cursor = 'default';
+		
+		this.querySelector('.import-json-btn').addEventListener('click', () => this.querySelector('.json-file-input').click());
+		this.querySelector('.json-file-input').addEventListener('change', (event) => this.handleFile(event));
+	}
+
+	kill() {
+		this.killChildren();
+		this.remove();
+	}
+
+	createChildren(AppComponentClass, title, initialData = {}) {
+		const childComponent = new AppComponentClass();
+		childComponent.setAttribute('app-title', title);
+		childComponent.initialData = initialData;
+		this.ui.childrenWrapper.appendChild(childComponent);
+		return childComponent;
+	}
+
+	killChildren() {
+		Array.from(this.ui.childrenWrapper.children).forEach(child => {
+			if (typeof child.kill === 'function') {
+				child.kill();
+			} else {
+				child.remove();
+			}
+		});
+		this.ui.childrenWrapper.innerHTML = '';
+	}
+
+	log(message) {
+		const timestamp = (new Date()).toLocaleTimeString();
+		this.ui.log.innerHTML += `[${timestamp}] ${message}\n`;
+		this.ui.log.scrollTop = this.ui.log.scrollHeight;
+		console.log(`[${this.constructor.name}] ${message}`);
+	}
+
+	showStatus(message, type = 'info') {
+		const statusElement = document.createElement('div');
+		statusElement.className = `status-message ${type}`;
+		statusElement.textContent = message;
+		this.ui.statusContainer.appendChild(statusElement);
+		setTimeout(() => { statusElement.remove(); }, 5000);
+	}
+
+	handleFile(event) {
+		this.killChildren(); 
+		this.state.subtitles_with_track_index = []; // 重置状态
+		const file = event.target.files[0]; 
+		if (!file) return;
+
+		this.log(`正在读取文件: ${file.name}`);
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			try {
+				this.state.json_file_name_current = file.name;
+				this.state.json_file_content = JSON.parse(e.target.result);
+				if (!this.state.json_file_content.draftCreatedVersion) {
+					this.log('❌JSON文件错误，检查不到文件元数据，不受支持的文件');
+					this.showStatus('❌JSON文件错误，检查不到文件元数据', 'error'); 
+					return;
+				}
+				this.log(`✅JSON文件读取成功，文件版本：${this.state.json_file_content.draftCreatedVersion}`);
+				this.showStatus('✅JSON文件读取成功!', 'success');
+				this.extractSubtitleTracks(this.state.json_file_content);
+			} catch (error) { 
+				this.showStatus('❌文件解析失败!', 'error'); 
+				this.log('❌JSON解析错误: ' + error.message);
+			} finally { 
+				event.target.value = ''; 
+			}
+		};
+		reader.readAsText(file, 'utf-8');
+	}
+	
+	extractSubtitleTracks(jsonContent) {
+		// 完备检查，防止因 track.clips 不存在或不是数组而引发forEach报错
+		if (!jsonContent.tracks || !Array.isArray(jsonContent.tracks)) {
+			this.log('❌未在JSON中找到有效的 "tracks" 数据');
+			return;
+		}
+
+		jsonContent.tracks.forEach((track, index) => {
+			const subtitlesInTrack = [];
+			if (track.clips && Array.isArray(track.clips)) {
+				track.clips.forEach(clip => {
+					// 检查可选链操作结果，若为 undefined 或 null 则跳过当前循环
+					const featureId = clip?.["10105"];
+					if (featureId === undefined || featureId === null) return;
+					const text = clip?.AssetInfo?.content;
+					if (text === undefined || text === null) return;
+					const startTime = clip?.inPoint;
+					if (startTime === undefined || startTime === null) return;
+					const endTime = clip?.outPoint;
+					if (endTime === undefined || endTime === null) return;
+
+					// 没有错误，则将字幕添加到数组中
+					subtitlesInTrack.push({ text: text, startTime: startTime, endTime: endTime });
+				});
+			}
+			if (subtitlesInTrack.length > 0) {
+				subtitlesInTrack.sort((a, b) => a.startTime - b.startTime);
+				this.state.subtitles_with_track_index.push({
+					trackIndex: track?.trackIndex || (index + 1), 
+					subtitles: subtitlesInTrack
+				});
+			}
+		});
+
+		if (this.state.subtitles_with_track_index.length > 0) {
+			this.showStatus('✅成功提取了字幕轨道数据。', 'success');
+			this.log(`✅成功提取了 ${this.state.subtitles_with_track_index.length} 条字幕轨道的数据。`);
+			this.generateSrtFromGroups(this.state.subtitles_with_track_index);
+		} else { 
+			this.showStatus('⚠️未找到可导出的字幕。', 'warning');
+			this.log('⚠️未在文件中找到可识别的字幕片段 (特征ID: 10105)');
+		}
+	}
+	
+	generateSrtFromGroups(subtitlesWithTrackIndex) {
+		subtitlesWithTrackIndex.forEach(trackData => {
+			let subtitleContent = '', subtitleLastEndTime = -1;
+			trackData.subtitles.forEach((subtitle, index) => {
+				if (subtitleLastEndTime > subtitle.startTime) {
+					this.log(`⚠️警告：字幕重叠错误 - 轨道 "${trackData.trackIndex}" 的第 ${index + 1} 条字幕与上一条存在时间重叠`);
+					this.log(`⚠️[${index + 1} ${subtitle.text}]`);
+				}
+				subtitleContent += `${index + 1}\n${this.msToSrtTime(subtitle.startTime)} --> ${this.msToSrtTime(subtitle.endTime)}\n${subtitle.text}\n\n`;
+				subtitleLastEndTime = subtitle.endTime;
+			});
+			if (subtitleContent) {
+				const now = new Date();
+				const title = `扫描结果: 轨道 ${trackData.trackIndex}`;
+				// 不理想，文件名太长了
+				// fileName: `${this.state.json_file_name_current}.track-${subtitles_with_track_index.trackIndex}.srt`, 
+				const fileName = `SRT ${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}-${String(now.getMinutes()).padStart(2,'0')}-${String(now.getSeconds()).padStart(2,'0')}.track-${trackData.trackIndex}.srt`;
+				const data = { content: subtitleContent.trim(), fileName: fileName };
+
+				// 使用 createChildren 方法创建 DownloadApp 实例
+				this.createChildren(DownloadApp, title, data);
+			}
+		});
+	}
+
+	msToSrtTime(ms) { 
+		if (ms < 0) ms = 0;
+		let date = new Date(ms);
+		let h = String(date.getUTCHours()).padStart(2, '0'), m = String(date.getUTCMinutes()).padStart(2, '0'), s = String(date.getUTCSeconds()).padStart(2, '0'), msVal = String(date.getUTCMilliseconds()).padStart(3, '0');
+		return `${h}:${m}:${s},${msVal}`;
+	}
+}
+
+// =======================================================================
+// 下载应用类 (DownloadApp) - 完全独立的 Web Component
+// =======================================================================
+class DownloadApp extends HTMLElement {
+	constructor() {
+		super();
+		
+		// initialData 将由父组件在创建时设置
+		this.fileName = 'download.txt';
+		this.content = '';
+	}
+
+	connectedCallback() {
+		// 使用默认模板或自定义模板
+		document.getElementById('app-panel-template') // 如果模板存在，则使用模板内容
+		? this.appendChild(document.getElementById('app-panel-template').content.cloneNode(true)) 
+		: this.innerHTML = `
+		<div class="process-wrapper">
+			<div class="container">
+				<h1 class="panel-title">应用标题</h1>
+				<div class="button-group"></div>
+				<div class="file-input-container"></div>
+				<div class="status-container"></div>
+				<textarea class="log-area" readonly></textarea>
+				</div>
+			<div class="children-wrapper"></div>
+		</div>`;
+
+		this.ui = {
+			container: this.querySelector('.container'),
+			title: this.querySelector('.panel-title'),
+			log: this.querySelector('.log-area'),
+			buttonGroup: this.querySelector('.button-group'),
+			statusContainer: this.querySelector('.status-container'),
+			childrenWrapper: this.querySelector('.children-wrapper')
+		};
+
+		if (this.hasAttribute('app-title')) {
+			this.ui.title.textContent = this.getAttribute('app-title');
+		}
+		// 从 initialData 获取数据
+		if (this.initialData) {
+			this.fileName = this.initialData.fileName || this.fileName;
+			this.content = this.initialData.content || this.content;
+		}
+		this.initUI();
+	}
+	
+	initUI() {
+		this.ui.log.value = this.content;
+		this.ui.log.readOnly = false; // 用户可以编辑
+		
+		this.ui.buttonGroup.innerHTML = `
+			<button class="copy-btn">复制SRT到剪贴板</button>
+			<button class="download-btn">下载SRT文件</button>
+		`;
+		
+		this.querySelector('.copy-btn').addEventListener('click', () => this.copyToClipboard());
+		this.querySelector('.download-btn').addEventListener('click', () => this.download());
+
+		// 下载组件不需要创建子组件，所以隐藏或移除children-wrapper
+		if (this.ui.childrenWrapper) {
+			this.ui.childrenWrapper.style.display = 'none';
+		}
+	}
+
+	kill() {
+		this.remove();
+	}
+
+	showStatus(message, type = 'info') {
+		const statusElement = document.createElement('div');
+		statusElement.className = `status-message ${type}`;
+		statusElement.textContent = message;
+		this.ui.statusContainer.appendChild(statusElement);
+		setTimeout(() => { statusElement.remove(); }, 5000);
+	}
+	
+	async copyToClipboard() {
+		try {
+			// 从textarea获取最新内容，以防用户编辑过
+			await navigator.clipboard.writeText(this.ui.log.value);
+			this.showStatus('✅SRT内容已复制到剪贴板', 'success');
+		} catch (error) {
+			this.showStatus('❌复制失败: ' + error.message, 'error');
+		}
+	}
+
+	download() {
+		try {
+			const blob = new Blob([this.ui.log.value], { type: 'text/plain;charset=utf-8' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = this.fileName.replace(/[^a-z0-9_-\s.]/gi, '').trim() || 'subtitle.srt';
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} catch (error) {
+			this.showStatus('❌下载失败: ' + error.message, 'error');
+		}
+	}
+}
+
+// =======================================================================
+// 主程序入口
+// =======================================================================
+window.onload = () => {
+	// 1. 定义所有自定义元素
+	customElements.define('import-app', ImportApp);
+	customElements.define('export-app', ExportApp);
+	customElements.define('download-app', DownloadApp);
+
+	// 2. 获取主容器
+	const mainContainer = document.getElementById('main-container');
+
+	// 3. 创建并添加初始的应用实例
+	const importer = document.createElement('import-app');
+	importer.setAttribute('app-title', 'SRT字幕导入工具 for 必剪JSON');
+	mainContainer.appendChild(importer);
+	
+	const exporter = document.createElement('export-app');
+	exporter.setAttribute('app-title', '字幕扫描与导出 for 必剪JSON');
+	mainContainer.appendChild(exporter);
+	
+	console.log("Web Components Initialized.");
+};
+</script>
+</body>
+</html>

@@ -1,1 +1,1 @@
-# srt_subtitle_importer_for_bcut
+# srt_subtitle_importer_for_bjson
