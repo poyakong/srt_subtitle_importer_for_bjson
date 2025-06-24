@@ -60,18 +60,45 @@
 			.file-input {
 				display: none;
 			}
-			/* 状态消息容器样式 */
+			/* 状态消息容器样式 - 添加固定高度和过渡 */
 			.status-container {
 				margin-top: 15px;
 				display: flex;
 				flex-direction: column;
 				gap: 10px;
+				min-height: 0; /* 允许容器收缩到内容高度 */
+				transition: min-height 0.3s ease-out;
 			}
-			/* 单个状态消息样式 */
+
+			/* 单个状态消息样式 - 添加动画 */
 			.status-message {
 				padding: 15px;
 				border-radius: 5px;
 				font-weight: bold;
+				transform: translateY(-20px);
+				opacity: 0;
+				max-height: 0;
+				overflow: hidden;
+				transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+				margin-bottom: 0;
+			}
+
+			/* 消息显示状态 */
+			.status-message.show {
+				transform: translateY(0);
+				opacity: 1;
+				max-height: 200px; /* 足够大的值来容纳内容 */
+				margin-bottom: 10px;
+			}
+
+			/* 消息隐藏状态 */
+			.status-message.hide {
+				transform: translateY(-20px);
+				opacity: 0;
+				max-height: 0;
+				margin-bottom: 0;
+				padding-top: 0;
+				padding-bottom: 0;
 			}
 			.status-message.success { background-color: #d4edda; color: #155724; }
 			.status-message.warning { background-color: #ede6d4; color: #c57600; }
@@ -102,6 +129,7 @@
 			.children-wrapper {
 				display: flex;
 				flex-direction: column;
+				gap: 15px;
 			}
 		</style>
 	</head>
@@ -290,12 +318,31 @@ class ImportApp extends HTMLElement {
 		console.log(`[${this.constructor.name}] ${message}`);
 	}
 
+	// 在所有三个类中替换 showStatus 方法
 	showStatus(message, type = 'info') {
 		const statusElement = document.createElement('div');
 		statusElement.className = `status-message ${type}`;
 		statusElement.textContent = message;
-		this.ui.statusContainer.appendChild(statusElement);
-		setTimeout(() => { statusElement.remove(); }, 5000);
+		
+		// 添加到容器
+		this.ui.statusContainer.prepend(statusElement);
+		
+		// 使用 requestAnimationFrame 确保元素已被添加到DOM
+		requestAnimationFrame(() => {
+			statusElement.classList.add('show');
+		});
+		
+		// 5秒后开始隐藏动画
+		setTimeout(() => {
+			statusElement.classList.add('hide');
+			
+			// 动画完成后移除元素
+			setTimeout(() => {
+				if (statusElement.parentNode) {
+					statusElement.remove();
+				}
+			}, 300); // 等待动画完成（300ms）
+		}, 6800);
 	}
 	 
 	// 用户风险确认
@@ -682,12 +729,31 @@ class ExportApp extends HTMLElement {
 		console.log(`[${this.constructor.name}] ${message}`);
 	}
 
+	// 在所有三个类中替换 showStatus 方法
 	showStatus(message, type = 'info') {
 		const statusElement = document.createElement('div');
 		statusElement.className = `status-message ${type}`;
 		statusElement.textContent = message;
-		this.ui.statusContainer.appendChild(statusElement);
-		setTimeout(() => { statusElement.remove(); }, 5000);
+		
+		// 添加到容器
+		this.ui.statusContainer.prepend(statusElement);
+		
+		// 使用 requestAnimationFrame 确保元素已被添加到DOM
+		requestAnimationFrame(() => {
+			statusElement.classList.add('show');
+		});
+		
+		// 5秒后开始隐藏动画
+		setTimeout(() => {
+			statusElement.classList.add('hide');
+			
+			// 动画完成后移除元素
+			setTimeout(() => {
+				if (statusElement.parentNode) {
+					statusElement.remove();
+				}
+			}, 300); // 等待动画完成（300ms）
+		}, 6800);
 	}
 
 	handleFile(event) {
@@ -867,12 +933,31 @@ class DownloadApp extends HTMLElement {
 		this.remove();
 	}
 
+	// 在所有三个类中替换 showStatus 方法
 	showStatus(message, type = 'info') {
 		const statusElement = document.createElement('div');
 		statusElement.className = `status-message ${type}`;
 		statusElement.textContent = message;
-		this.ui.statusContainer.appendChild(statusElement);
-		setTimeout(() => { statusElement.remove(); }, 5000);
+		
+		// 添加到容器
+		this.ui.statusContainer.prepend(statusElement);
+		
+		// 使用 requestAnimationFrame 确保元素已被添加到DOM
+		requestAnimationFrame(() => {
+			statusElement.classList.add('show');
+		});
+		
+		// 5秒后开始隐藏动画
+		setTimeout(() => {
+			statusElement.classList.add('hide');
+			
+			// 动画完成后移除元素
+			setTimeout(() => {
+				if (statusElement.parentNode) {
+					statusElement.remove();
+				}
+			}, 300); // 等待动画完成（300ms）
+		}, 6800);
 	}
 	
 	async copyToClipboard() {
