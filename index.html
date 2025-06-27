@@ -182,6 +182,10 @@
 // 共享工具函数
 // =======================================================================
 function deepCopy(obj) {
+	// 如果可以，使用性能更好的structuredClone
+	if (typeof structuredClone === 'function') {
+		return structuredClone(obj);	
+	}
 	return JSON.parse(JSON.stringify(obj));
 }
 
@@ -249,9 +253,9 @@ class ImportApp extends HTMLElement {
 		this.initUI();
 		// 初始化日志
 		this.log('SRT字幕导入工具');
-		this.log('Build: 20250621, Author: poyakong');
+		this.log('Build: 20250627, Author: poyakong');
 		this.log('✅工具启动成功');
-		this.ui.log.innerHTML += `[${(new Date()).toLocaleTimeString()}] ⚠️须知：使用之前，请务必观看教程<a href="https://www.bilibili.com/video/BV1KUfcYKEaR/" target="_blank">BV123456</a>\n`;
+		this.ui.log.innerHTML += `[${(new Date()).toLocaleTimeString()}] ⚠️须知：使用之前，请务必观看教程<a href="https://www.bilibili.com/video/BV1aqK3zEEaG/" target="_blank">BV1aqK3zEEaG</a>\n`;
 	}
 
 	initUI() {
@@ -360,7 +364,7 @@ class ImportApp extends HTMLElement {
 		const file = event.target.files[0];
 		if (!file) return;
 
-		this.log('正在读取工程' + file.name);
+		this.log('➡️正在读取工程' + file.name);
 
 		const reader = new FileReader();
 		reader.onload = (e) => {
@@ -429,14 +433,28 @@ class ImportApp extends HTMLElement {
 			try {
 				// 统一换行符为\n
 				const srtText = e.target.result.replace(/\r\n|\r/g, '\n');
-				const subtitles = [], blocks = srtText.trim().split(/\n\s*\n/);
+				const subtitles = []
+				const blocks = srtText.trim().split(/\n\s*\n/);
+				let subtitles_import_success_count = 0;
+
+				// [错误检测] 负数时间轴检测
 				let hasNegativeTime = false;
+				// [错误检测] 字幕顺序错误检测
+				let hasOverlappingSubtitles = false;
+				let subtitle_end_time_previous = 0;
+				const RegExpSubtitle = new RegExp("^(\\d+)\\n(-?\\d{2}:\\d{2}:\\d{2},\\d{3})\\s*-->\\s*(-?\\d{2}:\\d{2}:\\d{2},\\d{3})\\n([\\s\\S]*?)(?:\\n)?$")
+
+				// 使用logBuffer来缓存日志，因为日志记录是最大的性能开销
+				let logBuffer = '';
+				const logWithBuffer = (message) => {
+					logBuffer += message + '\n';
+				};
 				
 				blocks.forEach((block, index) => {
 					// 改进后的正则表达式，匹配序号、时间戳和字幕文本，包括末尾换行
-					const matches = block.match(new RegExp("^(\\d+)\\n(-?\\d{2}:\\d{2}:\\d{2},\\d{3})\\s*-->\\s*(-?\\d{2}:\\d{2}:\\d{2},\\d{3})\\n([\\s\\S]*?)(?:\\n)?$"));
+					const matches = block.match(RegExpSubtitle);
 					if (!matches) {
-						this.log(`❌解析错误:[${index + 1}] 字幕格式错误`);
+						logWithBuffer(`❌解析错误:[${index + 1}] 字幕格式错误`);
 						return;
 					}
 					
@@ -444,41 +462,92 @@ class ImportApp extends HTMLElement {
 					const startTime = this.parseTimeToMs(startTimeStr);
 					const endTime = this.parseTimeToMs(endTimeStr);
 					const duration = endTime - startTime;
+					let addable = true;
 					
-					if (startTime < 0 || endTime < 0) hasNegativeTime = true;
-					if (duration <= 0) {
-						this.log(`❌解析错误:[${index + 1}] 字幕时间轴错误`);
-						return;
+					// [错误检测] 负数时间轴检测
+					if (startTime < 0 || endTime < 0) {
+						logWithBuffer(`❌解析错误:[${index + 1}] 字幕时间轴为负数`);
+						hasNegativeTime = true;
+						addable = false;
 					}
+					// [错误检测] 字幕时间长度检测
+					if (duration <= 0) {
+						logWithBuffer(`❌解析错误:[${index + 1}] 字幕时间长度不正确`);
+						addable = false;
+					}
+					// [错误检测] 字幕重叠错误检测
+					if (startTime < subtitle_end_time_previous) {
+						logWithBuffer(`⚠️字幕错误:[${index + 1}] 字幕时间轴检测到重叠`);
+						hasOverlappingSubtitles = true;
+					}
+					subtitle_end_time_previous = endTime;
 					
+					// 将解析结果添加到subtitles数组
 					subtitles.push({ 
 						text: subtitleText.trim(), 
 						start_time: startTime, 
 						end_time: endTime, 
 						duration: duration, 
-						addable: (startTime >= 0 && duration >= 0) 
+						addable: addable
 					});
 					
-					// 报告成功解析的字幕
-					// 20250622 很变态的一行代码，可惜用不上
-					// ${subtitleText.length > 8 ? subtitleText.substring(0, 8) + '...' : subtitleText}
-					this.log(`解析成功:[${sequenceNumber}] ${startTimeStr}: \n${subtitleText}`);
+					// 20250627 性能瓶颈，在不进行log的情况下只需要1秒就全部解析完了
+					// 20250627 而在进行log的情况下，至少需要十几分钟
+					// 20250627 使用logWithBuffer()替代this.log()
+					// 报告解析结果 
+					if (addable) {
+						// 20250622 很变态的一行代码，可惜用不上
+						// ${subtitleText.length > 8 ? subtitleText.substring(0, 8) + '...' : subtitleText}
+						logWithBuffer(`➡️解析成功:[${sequenceNumber}] ${startTimeStr}: \n${subtitleText}`);
+						subtitles_import_success_count++;
+					} else {
+						logWithBuffer(`⚠️解析失败:[${sequenceNumber}] ${startTimeStr}: \n${subtitleText}`);
+					}
+					
 				});
+
+				// 将logBuffer的内容应用
+				this.log(logBuffer.trim());
+				logBuffer = '';
 				
+				// 导入结果
+				this.showStatus(`✅SRT字幕读取完成！读取了${subtitles_import_success_count}/${blocks.length}个字幕`, 'success');
+				this.log(`✅SRT字幕读取完成！读取了${subtitles_import_success_count}/${blocks.length}个字幕`);
+
+				// 尝试修复字幕重叠
+				if (hasOverlappingSubtitles) {
+					// log
+					this.log('⚠️检测到字幕时间轴产生重叠，尝试修复');
+					// 对字幕进行排序
+					subtitles.sort((a, b) => a.start_time - b.start_time);
+					// 重新检查重叠
+					hasOverlappingSubtitles = false;
+					subtitle_end_time_previous = 0;
+					subtitles.forEach((subtitle) => {
+						if (subtitle.start_time < subtitle_end_time_previous) {
+							hasOverlappingSubtitles = true;
+						}
+						subtitle_end_time_previous = subtitle.end_time;
+					});
+					if (hasOverlappingSubtitles) {
+						this.log('⚠️字幕时间轴检测到到重叠，且主动尝试修复失败，程序仍会运行，但可能会产生不可预测的错误');
+					} else {
+						this.log('✅字幕时间轴检测到重叠，但主动尝试修复成功');
+					}
+				}
+
 				if (hasNegativeTime) {
 					this.showStatus('⚠️检测到负数的时间轴，请检查字幕文件', 'warning');
 					this.log('⚠️检测到负数的时间轴，请检查字幕文件');
 				}
 				
-				this.state.srt_file_content = subtitles;
-
-				this.showStatus(`✅SRT字幕读取完成！读取了${subtitles.length}/${blocks.length}个字幕`, 'success');
-				this.log(`✅SRT字幕读取完成！读取了${subtitles.length}/${blocks.length}个字幕`);
-
-				if (blocks.length !== subtitles.length) {
+				if (blocks.length !== subtitles_import_success_count) {
 					this.showStatus(`⚠️SRT文件解析警告：字幕数量不匹配`, 'error');
 					this.log(`⚠️SRT文件解析警告：有${blocks.length - subtitles.length}个字幕未能被正确解析`);
 				}
+
+				// 保存subtitles到文件
+				this.state.srt_file_content = subtitles;
 
 				this.querySelector('.generate-btn').disabled = false; // 更新按钮状态
 
@@ -762,7 +831,7 @@ class ExportApp extends HTMLElement {
 		const file = event.target.files[0]; 
 		if (!file) return;
 
-		this.log(`正在读取文件: ${file.name}`);
+		this.log(`➡️正在读取文件: ${file.name}`);
 		const reader = new FileReader();
 		reader.onload = (e) => {
 			try {
