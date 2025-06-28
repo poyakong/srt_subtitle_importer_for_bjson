@@ -445,17 +445,19 @@ class ImportApp extends HTMLElement {
 				const RegExpSubtitle = new RegExp("^(\\d+)\\n(-?\\d{2}:\\d{2}:\\d{2},\\d{3})\\s*-->\\s*(-?\\d{2}:\\d{2}:\\d{2},\\d{3})\\n([\\s\\S]*?)(?:\\n)?$")
 
 				// 使用logBuffer来缓存日志，因为日志记录是最大的性能开销
-				let logBuffer = '';
+				let logBuffer = ``;
 				const logWithBuffer = (message) => {
 					logBuffer += message + '\n';
 				};
+
+				logWithBuffer(`➡️正在读取SRT文件 ${file.name}`);
 				
-				blocks.forEach((block, index) => {
+				for (const [index, block] of blocks.entries()) {
 					// 改进后的正则表达式，匹配序号、时间戳和字幕文本，包括末尾换行
 					const matches = block.match(RegExpSubtitle);
 					if (!matches) {
 						logWithBuffer(`❌解析错误:[${index + 1}] 字幕格式错误`);
-						return;
+						continue;
 					}
 					
 					const [, sequenceNumber, startTimeStr, endTimeStr, subtitleText] = matches;
@@ -504,7 +506,7 @@ class ImportApp extends HTMLElement {
 						logWithBuffer(`⚠️解析失败:[${sequenceNumber}] ${startTimeStr}: \n${subtitleText}`);
 					}
 					
-				});
+				}
 
 				// 将logBuffer的内容应用
 				this.log(logBuffer.trim());
@@ -523,12 +525,12 @@ class ImportApp extends HTMLElement {
 					// 重新检查重叠
 					hasOverlappingSubtitles = false;
 					subtitle_end_time_previous = 0;
-					subtitles.forEach((subtitle) => {
+					for(const subtitle of subtitles){
 						if (subtitle.start_time < subtitle_end_time_previous) {
 							hasOverlappingSubtitles = true;
 						}
 						subtitle_end_time_previous = subtitle.end_time;
-					});
+					}
 					if (hasOverlappingSubtitles) {
 						this.log('⚠️字幕时间轴检测到到重叠，且主动尝试修复失败，程序仍会运行，但可能会产生不可预测的错误');
 					} else {
@@ -615,8 +617,8 @@ class ImportApp extends HTMLElement {
 			const baseMId = templateClip.m_id || "1714550534688";
 			
 			// 为每个SRT字幕生成clip
-			this.state.srt_file_content.forEach((subtitle, iterator) => {
-				if (!subtitle.addable) return;
+			for (const [iterator, subtitle] of this.state.srt_file_content.entries()) {
+				if (!subtitle.addable) continue;
 
 				const newClip = deepCopy(templateClip);
 
@@ -636,15 +638,15 @@ class ImportApp extends HTMLElement {
 
 				// 字幕设置完成，添加到轨道中
 				newTrack.clips.push(newClip);
-			});
+			}
 
 			// 将新轨道插入到开头
 			this.state.json_result_content.tracks.unshift(newTrack);
 			
 			// 重新生成所有轨道的 trackIndex
-			this.state.json_result_content.tracks.forEach((track, index) => {
+			for (const [index, track] of this.state.json_result_content.tracks.entries()) {
 				track.trackIndex = index + 1;
-			});
+			}
 			
 			this.showStatus(`✅字幕生成成功！共生成${newTrack.clips.length}个字幕片段`, 'success');
 			this.log(`✅字幕生成成功！共生成${newTrack.clips.length}个字幕片段`);
