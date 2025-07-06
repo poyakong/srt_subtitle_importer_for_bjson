@@ -181,12 +181,30 @@
 // =======================================================================
 // 共享工具函数
 // =======================================================================
+
+// 深拷贝函数 - 用于复制对象
 function deepCopy(obj) {
 	// 如果可以，使用性能更好的structuredClone
 	if (typeof structuredClone === 'function') {
 		return structuredClone(obj);	
 	}
 	return JSON.parse(JSON.stringify(obj));
+}
+
+// 版本号比较函数
+// 更简洁的版本（不含错误处理）
+function compareVersion_greaterEqual(versionString_1 = '', versionString_2 = '') {
+  const subversions_1 = versionString_1.split('.').map(Number);
+  const subversions_2 = versionString_2.split('.').map(Number);
+  const maxLen = Math.max(subversions_1.length, subversions_2.length);
+  
+  for (let i = 0; i < maxLen; i++) {
+    const a = subversions_1[i] || 0;
+    const b = subversions_2[i] || 0;
+    if (a > b) return true;
+    if (a < b) return false;
+  }
+  return true; // 版本相同时返回true
 }
 
 // =======================================================================
@@ -207,6 +225,7 @@ class ImportApp extends HTMLElement {
 			json_file_name_current: '',
 			json_file_name_previous: '',
 			json_file_content: null,
+			json_file_draftCreatedVersion: 0,
 			json_result_content: null,
 			srt_file_name_current: '',
 			srt_file_name_previous: '',
@@ -253,7 +272,8 @@ class ImportApp extends HTMLElement {
 		this.initUI();
 		// 初始化日志
 		this.log('SRT字幕导入工具');
-		this.log('Build: 20250627, Author: poyakong');
+		this.log('Build(v0.0.0 - v3.5.4): 20250627, Author: poyakong');
+		this.log('Build(v3.6.0 - v3.7.14): 20250706, Author: poyakong');
 		this.log('✅工具启动成功');
 		this.ui.log.innerHTML += `[${(new Date()).toLocaleTimeString()}] ⚠️须知：使用之前，请务必观看教程<a href="https://www.bilibili.com/video/BV1aqK3zEEaG/" target="_blank">BV1aqK3zEEaG</a>\n`;
 	}
@@ -270,7 +290,7 @@ class ImportApp extends HTMLElement {
 		
 		// 以编程方式创建文件输入
 		this.ui.fileInputContainer.innerHTML = `
-			<input type="file" class="file-input json-file-input" accept=".json">
+			<input type="file" class="file-input json-file-input" accept=".json,.bjson">
 			<input type="file" class="file-input srt-file-input" accept=".srt">
 		`;
 
@@ -280,11 +300,11 @@ class ImportApp extends HTMLElement {
 		// 绑定事件监听器
 		this.querySelector('.import-json-btn').addEventListener('click', () => this.querySelector('.json-file-input').click());
 		this.querySelector('.import-srt-btn').addEventListener('click', () => this.querySelector('.srt-file-input').click());
-		this.querySelector('.generate-btn').addEventListener('click', () => this.generateSubtitles());
+		this.querySelector('.generate-btn').addEventListener('click', () => this.generateSubtitles_main_withVersionChecker());
 		this.querySelector('.copy-btn').addEventListener('click', () => this.copyToClipboard());
 		this.querySelector('.download-btn').addEventListener('click', () => this.downloadJson());
 		
-		this.querySelector('.json-file-input').addEventListener('change', (event) => this.json_content_import(event));
+		this.querySelector('.json-file-input').addEventListener('change', (event) => this.jsonContentImport_main_withVersionSelector(event));
 		this.querySelector('.srt-file-input').addEventListener('change', (event) => this.srt_content_import(event));
 	}
 	
@@ -360,37 +380,69 @@ class ImportApp extends HTMLElement {
 		return true
 	}
 
-	json_content_import(event) {
+	jsonContentImport_main_withVersionSelector(event) {
 		const file = event.target.files[0];
 		if (!file) return;
 
-		this.log('➡️正在读取工程' + file.name);
+		this.log(`➡️正在读取工程：${file.name}`);
 
 		const reader = new FileReader();
 		reader.onload = (e) => {
 			try {
 				this.state.json_file_content = JSON.parse(e.target.result);
 				
+				// 获取版本
+				this.state.json_file_draftCreatedVersion = this.state.json_file_content.draftCreatedVersion;
+
 				// 查找"程序定位模板字幕"
 				let found = false;
-				if (this.state.json_file_content.tracks) {
-					for (const track of this.state.json_file_content.tracks) {
-						if (track.clips) {
-							for (const clip of track.clips) {
-								if (clip.AssetInfo && clip.AssetInfo.content === "程序定位模板字幕") {
-									this.state.subtitle_template.track_template = track;
-									this.state.subtitle_template.clip_template = clip;
-									// 防止用户设置了voiceid (如果不存在，js会自动创建attachVoiceId，所以这条指令是安全的)
-									this.state.subtitle_template.clip_template.attachVoiceId = 0;
-									found = true; 
-									break;
+
+				// 版本检查
+				// 查找"程序定位模板字幕" for version_3_6_0_minus
+				if (file.name.split('.').pop().toLowerCase() === 'json') {
+					if (this.state.json_file_content?.tracks) {
+						for (const track of this.state.json_file_content.tracks) {
+							if (track?.clips) {
+								for (const clip of track.clips) {
+									if (clip?.AssetInfo && clip?.AssetInfo.content === "程序定位模板字幕") {
+										this.state.subtitle_template.track_template = track;
+										this.state.subtitle_template.clip_template = clip;
+										// 防止用户设置了voiceid (如果不存在，js会自动创建attachVoiceId，所以这条指令是安全的)
+										this.state.subtitle_template.clip_template.attachVoiceId = 0;
+										found = true; 
+										break;
+									}
 								}
 							}
+							if (found) break;
 						}
-						if (found) break;
 					}
+				} 
+				// 查找"程序定位模板字幕" for version_3_6_0_plus
+				else if (file.name.split('.').pop().toLowerCase() === 'bjson') {
+					if (this.state.json_file_content?.timelineWidget?.timeline?.captionTracks) {
+						for (const captionTrack of this.state.json_file_content.timelineWidget.timeline.captionTracks) {
+							if (captionTrack?.captions) {
+								for (const caption of captionTrack.captions) {
+									if (caption?.captionText === "程序定位模板字幕") {
+										this.state.subtitle_template.track_template = captionTrack;
+										this.state.subtitle_template.clip_template = caption;
+										// v3.6.0 新版本不再拥有voicedid，而是解耦为tts数组储存字幕和音频的对应关系
+										found = true;
+										break;
+									}
+								}
+							}
+							if (found) break;
+						}
+					}
+				} 
+				// [error case] 兼容性错误
+				else {
+					this.showStatus('❌未兼容的版本，本程序也没啥办法呢喵', 'error');
+					this.log('❌未兼容的版本，本程序也没啥办法呢喵');
+					return;
 				}
-
 				if (!found) {
 					this.showStatus('程序定位模板字幕 查找失败\n请先在项目中创建一个字幕，且重命名为 ➡️ 程序定位模板字幕', 'error');
 					this.log('❌定位字幕 查找失败');
@@ -408,6 +460,7 @@ class ImportApp extends HTMLElement {
 			} catch (error) { 
 				this.showStatus('❌JSON文件格式错误：' + error.message, 'error');
 				this.log('❌JSON解析错误: ' + error.message);
+				console.log(error);
 				this.state.json_file_content = null;
 			} finally { 
 				// 重置 input 元素的 value 属性，兼容同名文件重复读取
@@ -450,7 +503,7 @@ class ImportApp extends HTMLElement {
 					logBuffer += message + '\n';
 				};
 
-				logWithBuffer(`➡️正在读取SRT文件 ${file.name}`);
+				logWithBuffer(`➡️正在读取SRT文件：${file.name}`);
 				
 				for (const [index, block] of blocks.entries()) {
 					// 改进后的正则表达式，匹配序号、时间戳和字幕文本，包括末尾换行
@@ -556,6 +609,7 @@ class ImportApp extends HTMLElement {
 			} catch (error) { 
 				this.showStatus('❌SRT文件解析错误：' + error.message, 'error');
 				this.log('❌SRT解析错误: ' + error.message);
+				console.log(error);
 			} finally { 
 				// 重置 input 元素的 value 属性，兼容同名文件重复读取
 				event.target.value = '';
@@ -563,39 +617,33 @@ class ImportApp extends HTMLElement {
 		};
 		reader.readAsText(file);
 	}
-
-	findUniqueId(baseId, iterator = 0) {
-		let newId = baseId + iterator;
-		while (this.state.json_existing_m_id_s.has(newId)) {
-			iterator++;
-			newId = baseId + iterator;
-		}
-		return newId;
-	}
 	
-	getAllMIds(jsonData) {
-		const mIds = new Set();
-		function traverse(obj) { 
-			if (typeof obj === 'object' && obj !== null) { 
-				if (obj.m_id) {
-					mIds.add(obj.m_id);
-				}
-				for (const key in obj) {
-					traverse(obj[key]);
-				}
-			} 
-		}
-		traverse(jsonData); 
-		return mIds;
-	}
-	
-	generateSubtitles() {
+	generateSubtitles_main_withVersionChecker() {
 		// 检查是否重复生成
 		if (this.state.json_file_name_current === this.state.json_file_name_previous && confirm("⚠️警告：您已为相同的文件生成过字幕，再次生成会导致字幕复制\n您确定仍然要再次生成吗？") === false) {
 			return;
 		}
 
-		// main funtion
+		// 检查版本(理想版本)
+		// if (compareVersion_greaterEqual(this.state.json_file_content.draftCreatedVersion, '3.6.0') === false) {
+		// 	generateSubtitles_vesion_3_6_0_minus();
+		// } else {
+		// 	generateSubtitles_vesion_3_6_0_plus();
+		// }
+
+		// 检查版本
+		const fileSuffix = this.state.json_file_name_current.split('.').pop().toLowerCase();
+		if (fileSuffix === 'json') {
+			this.generateSubtitles_for_vesion_3_6_0_minus();
+		} else if(fileSuffix === 'bjson') {
+			this.generateSubtitles_for_vesion_3_6_0_plus();
+		} else {
+			this.showStatus('❌未知文件格式', 'error');
+			this.log('❌未知文件格式');
+		}
+	}
+	
+	generateSubtitles_for_vesion_3_6_0_minus() {
 		try {
 			// 深拷贝模板轨道并添加新的track
 			this.state.json_result_content = deepCopy(this.state.json_file_content);
@@ -611,13 +659,26 @@ class ImportApp extends HTMLElement {
 			
 			// 获取字幕模板
 			const templateClip = this.state.subtitle_template.clip_template;
-			// 获取所有现有的m_id
-			this.state.json_existing_m_id_s = this.getAllMIds(this.state.json_result_content);
 			// 获取模板m_id
-			const baseMId = templateClip.m_id || "1714550534688";
+			const baseMId = templateClip?.m_id || "1714550534688";
+			// 获取所有现有的m_id
+			const json_existing_m_id_s = new Set();
+			function traverse(obj) { 
+				if (typeof obj === 'object' && obj !== null) { 
+					if (obj.m_id) {
+						json_existing_m_id_s.add(obj.m_id);
+					}
+					for (const key in obj) {
+						traverse(obj[key]);
+					}
+				} 
+			}
+			traverse(this.state.json_result_content); 
 			
 			// 为每个SRT字幕生成clip
-			for (const [iterator, subtitle] of this.state.srt_file_content.entries()) {
+			// 循环外辅助变量 iterator 用于解决m_id重复问题
+			let iterator = 0;
+			for (const [index, subtitle] of this.state.srt_file_content.entries()) {
 				if (!subtitle.addable) continue;
 
 				const newClip = deepCopy(templateClip);
@@ -632,9 +693,14 @@ class ImportApp extends HTMLElement {
 				newClip["originTrimOut"] = subtitle.duration;
 				newClip["trimOut"] = subtitle.duration;
 
-				// 设置字幕m_id
-				newClip["m_id"] = this.findUniqueId(baseMId, iterator);
-				this.state.json_existing_m_id_s.add(newClip["m_id"]);
+				// 生成并设置字幕m_id
+				let newId = baseMId + index + iterator;
+				while (json_existing_m_id_s.has(newId)) {
+					iterator++;
+					newId++;
+				}
+				newClip["m_id"] = newId;
+				json_existing_m_id_s.add(newClip["m_id"]);
 
 				// 字幕设置完成，添加到轨道中
 				newTrack.clips.push(newClip);
@@ -660,8 +726,124 @@ class ImportApp extends HTMLElement {
 		} catch (error) { 
 			this.showStatus('❌生成字幕时出错：' + error.message, 'error'); 
 			this.log('❌生成字幕错误: ' + error.message);
+			console.log(error);
 		}
 	}
+
+	generateSubtitles_for_vesion_3_6_0_plus() {
+		try{
+			// 深拷贝模板轨道并添加新的track
+			this.state.json_result_content = deepCopy(this.state.json_file_content);
+			const newTrack = deepCopy(this.state.subtitle_template.track_template);
+
+			// 清空captions
+			newTrack.captions = [];
+
+			// 获取字幕模板
+			const templateClip = this.state.subtitle_template.clip_template;
+			// 获取模板uid
+			const baseUId = templateClip?.uid || "1750739420337";
+			// 获取所有现有的uid
+			const json_existing_uid_s = new Set();
+			function traverse_uid(obj) { 
+				if (typeof obj === 'object' && obj !== null) { 
+					if (obj.uid) {
+						json_existing_uid_s.add(obj.uid);
+					}
+					for (const key in obj) {
+						traverse_uid(obj[key]);
+					}
+				} 
+			}
+			traverse_uid(this.state.json_result_content);
+			// 获取模板idString，并提前转换为数字从而减少性能消耗
+			// 20250706 Warning，默认值1751816956445142081超出了js的Number.MAX_SAFE_INTEGER，导致精度丢失
+			// 20250706 解决方法：使用BigInt
+			const baseIdString = BigInt(templateClip?.idString || 1751816956445142081);
+			// 获取所有现有的idString
+			const json_existing_idString_s = new Set();
+			function traverse_idString(obj) {
+				if (typeof obj === 'object' && obj!== null) {
+					if (obj.idString) {
+						json_existing_idString_s.add(obj.idString);
+					}
+					for (const key in obj) {
+						traverse_idString(obj[key]);
+					}	
+				}	
+			}
+			traverse_idString(this.state.json_result_content);
+
+			// 为每个SRT字幕生成clip
+			// 循环外辅助变量 iterator 用于解决m_id重复问题
+			let iterator_offset_uid = 0;
+			let iterator_offset_idString = 0;
+			for (const [index, subtitle] of this.state.srt_file_content.entries()) {
+				if (!subtitle.addable) continue;
+
+				const newClip = deepCopy(templateClip);
+
+				// 设置字幕属性
+				newClip["assetInfo"]["content"] = subtitle.text;
+				newClip["assetInfo"]["displayName"] = subtitle.text;
+				newClip["captionText"] = subtitle.text;
+				newClip["inPoint"] = subtitle.start_time;
+				newClip["outPoint"] = subtitle.end_time;
+
+				// 生成并设置字幕uid
+				let new_uid = baseUId + index + iterator_offset_uid;
+				while (json_existing_uid_s.has(new_uid)) {
+					iterator_offset_uid++;
+					new_uid++;
+				}
+				newClip["uid"] = new_uid;
+				json_existing_uid_s.add(newClip["uid"]);
+
+				// 生成并设置字幕idString
+				// 20250706 Warning，默认值1751816956445142081超出了js的Number.MAX_SAFE_INTEGER，导致精度丢失
+				// 20250706 解决方法：使用BigInt
+				let newIdString = baseIdString + BigInt(index) + BigInt(iterator_offset_idString);
+				while (json_existing_idString_s.has(String(newIdString))) {
+					iterator_offset_idString++;
+					newIdString++;	
+				}
+				newClip["idString"] = String(newIdString);
+				json_existing_idString_s.add(newClip["idString"]);
+
+				// 字幕设置完成，添加到轨道中
+				newTrack.captions.push(newClip);
+			}
+
+			// 设置trackType
+			// 3 = 默认字幕
+			// 4 = 识别字幕(组合)
+			newTrack.trackType = 3;
+			// 设置track index
+			newTrack.index = this.state.json_result_content.timelineWidget.timeline.captionTracks.length + 1;
+
+			// 将新轨道插入到末尾
+			this.state.json_result_content.timelineWidget.timeline.captionTracks.push(newTrack);
+			
+			// 修复json_result_content.tracking[]？
+			// (20250706：目前的必剪能自动修复，不需要进行修改)
+			
+			this.showStatus(`✅字幕生成成功！共生成${newTrack.captions.length}个字幕片段`, 'success');
+			this.log(`✅字幕生成成功！共生成${newTrack.captions.length}个字幕片段`);
+			
+			// 启用导出按钮
+			this.querySelector('.copy-btn').disabled = false;
+			this.querySelector('.download-btn').disabled = false;
+
+			// 记录文件名以备下次检查
+			this.state.json_file_name_previous = this.state.json_file_name_current;
+
+		} catch (error) {
+			this.showStatus('❌生成字幕时出错：' + error.message, 'error');
+			this.log('❌生成字幕错误:'+ error.message);
+			console.log(error);
+		}
+	}
+
 
 	async copyToClipboard() { 
 		if (!this.state.json_result_content) {
@@ -678,6 +860,7 @@ class ImportApp extends HTMLElement {
 		} catch (e) {
 			this.showStatus('❌复制到剪贴板失败：' + e.message, 'error');
 			this.log('❌复制失败: ' + e.message);
+			console.log(e);
 		}
 	}
 
@@ -704,6 +887,7 @@ class ImportApp extends HTMLElement {
 		} catch (e) {
 			this.showStatus('❌下载JSON文件失败：' + e.message, 'error');
 			this.log('❌下载JSON文件失败: ' + e.message);
+			console.log(e);
 		}
 	}
 }
@@ -754,13 +938,14 @@ class ExportApp extends HTMLElement {
 		}
 		this.initUI();
 		this.log('SRT字幕扫描工具');
-		this.log('Build: 20250622, Author: poyakong');
+		this.log('Build(v0.0.0 - v3.5.4): 20250622, Author: poyakong');
+		this.log('Build(v3.6.0 - v3.7.14): 20250706, Author: poyakong');
 		this.log('✅工具启动成功');
 	}
 
 	initUI() {
 		this.ui.buttonGroup.innerHTML = `<button class="import-json-btn">导入JSON文件</button>`;
-		this.ui.fileInputContainer.innerHTML = `<input type="file" class="file-input json-file-input" accept=".json">`;
+		this.ui.fileInputContainer.innerHTML = `<input type="file" class="file-input json-file-input" accept=".json,.bjson">`;
 
 		// text-area 不会改变鼠标光标样式
 		// this.ui.log.style.cursor = 'default';
@@ -846,10 +1031,24 @@ class ExportApp extends HTMLElement {
 				}
 				this.log(`✅JSON文件读取成功，文件版本：${this.state.json_file_content.draftCreatedVersion}`);
 				this.showStatus('✅JSON文件读取成功!', 'success');
-				this.extractSubtitleTracks(this.state.json_file_content);
+				// 版本检查
+				// v0.0.0 - v3.5.4
+				if (file.name.split('.').pop().toLowerCase() === 'json') {
+					this.extractSubtitleTracks_from_version_3_6_0_minus(this.state.json_file_content);
+				}
+				// v3.6.0 - v3.7.14 
+				else if (file.name.split('.').pop().toLowerCase() === 'bjson') {
+					this.extractSubtitleTracks_from_version_3_6_0_plus(this.state.json_file_content);
+				} 
+				// version error
+				else {
+					this.showStatus('❌未兼容的版本，本程序也没啥办法呢喵', 'error');
+					this.log('❌未兼容的版本，本程序也没啥办法呢喵');
+				}
 			} catch (error) { 
 				this.showStatus('❌文件解析失败!', 'error'); 
 				this.log('❌JSON解析错误: ' + error.message);
+				console.log(error);
 			} finally { 
 				event.target.value = ''; 
 			}
@@ -857,9 +1056,9 @@ class ExportApp extends HTMLElement {
 		reader.readAsText(file, 'utf-8');
 	}
 	
-	extractSubtitleTracks(jsonContent) {
+	extractSubtitleTracks_from_version_3_6_0_minus(jsonContent) {
 		// 完备检查，防止因 track.clips 不存在或不是数组而引发forEach报错
-		if (!jsonContent.tracks || !Array.isArray(jsonContent.tracks)) {
+		if (!jsonContent?.tracks || !Array.isArray(jsonContent.tracks)) {
 			this.log('❌未在JSON中找到有效的 "tracks" 数据');
 			return;
 		}
@@ -898,6 +1097,46 @@ class ExportApp extends HTMLElement {
 		} else { 
 			this.showStatus('⚠️未找到可导出的字幕。', 'warning');
 			this.log('⚠️未在文件中找到可识别的字幕片段 (特征ID: 10105)');
+		}
+	}
+
+	extractSubtitleTracks_from_version_3_6_0_plus(jsonContent) {
+		// 完备检查，防止因 track.clips 不存在或不是数组而引发forEach报错
+		if (!jsonContent?.timelineWidget?.timeline?.captionTracks || !Array.isArray(jsonContent.timelineWidget.timeline.captionTracks)) {
+			this.log('❌未在JSON中找到有效的 "tracks" 数据');
+			return;
+		}
+		jsonContent.timelineWidget.timeline.captionTracks.forEach((track, index) => {
+			const subtitlesInTrack = [];
+			if (track.captions && Array.isArray(track.captions)) {
+				track.captions.forEach(clip => {
+					// 检查可选链操作结果，若为 undefined 或 null 则跳过当前循环
+					const text = clip?.captionText;
+					if (text === undefined || text === null) return;
+					const startTime = clip?.inPoint;
+					if (startTime === undefined || startTime === null) return;
+					const endTime = clip?.outPoint;
+					if (endTime === undefined || endTime === null) return;
+
+					// 没有错误，则将字幕添加到数组中
+					subtitlesInTrack.push({ text: text, startTime: startTime, endTime: endTime });
+				});
+			}
+			if (subtitlesInTrack.length > 0) {
+				subtitlesInTrack.sort((a, b) => a.startTime - b.startTime);
+				this.state.subtitles_with_track_index.push({
+					trackIndex: track?.trackIndex || (index + 1),
+					subtitles: subtitlesInTrack
+				});	
+			}
+		});
+		if (this.state.subtitles_with_track_index.length > 0) {
+			this.showStatus('✅成功提取了字幕轨道数据。', 'success');
+			this.log(`✅成功提取了 ${this.state.subtitles_with_track_index.length} 条字幕轨道的数据。`);
+			this.generateSrtFromGroups(this.state.subtitles_with_track_index);
+		} else { 
+			this.showStatus('⚠️未找到可导出的字幕。', 'warning');
+			this.log('⚠️未在文件中找到可识别的字幕片段 (function version_3_6_0_plus)');
 		}
 	}
 	
@@ -1036,8 +1275,11 @@ class DownloadApp extends HTMLElement {
 			// 从textarea获取最新内容，以防用户编辑过
 			await navigator.clipboard.writeText(this.ui.log.value);
 			this.showStatus('✅SRT内容已复制到剪贴板', 'success');
+			this.log('✅SRT内容已复制到剪贴板');
 		} catch (error) {
 			this.showStatus('❌复制失败: ' + error.message, 'error');
+			this.log('❌复制失败:'+ error.message);
+			console.log(error);
 		}
 	}
 
@@ -1054,6 +1296,8 @@ class DownloadApp extends HTMLElement {
 			URL.revokeObjectURL(url);
 		} catch (error) {
 			this.showStatus('❌下载失败: ' + error.message, 'error');
+			this.log('❌下载失败:'+ error.message);
+			console.log(error);
 		}
 	}
 }
