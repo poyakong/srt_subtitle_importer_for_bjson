@@ -417,6 +417,8 @@ class ImportApp extends HTMLElement {
 							if (found) break;
 						}
 					}
+					this.showStatus('✅JSON文件读取成功！已读取字幕模板', 'success');
+					this.log(`✅JSON文件读取成功，模板位置: trackIndex ${this.state.subtitle_template.track_template.trackIndex}`);
 				} 
 				// 查找"程序定位模板字幕" for version_3_6_0_plus
 				else if (file.name.split('.').pop().toLowerCase() === 'bjson') {
@@ -436,6 +438,8 @@ class ImportApp extends HTMLElement {
 							if (found) break;
 						}
 					}
+					this.showStatus('✅JSON文件读取成功！已读取字幕模板', 'success');
+					this.log(`✅JSON文件读取成功，模板位置: index ${this.state.subtitle_template.track_template.index}`);
 				} 
 				// [error case] 兼容性错误
 				else {
@@ -450,9 +454,6 @@ class ImportApp extends HTMLElement {
 					this.state.json_file_content = null; 
 					return;
 				}
-
-				this.showStatus('✅JSON文件读取成功！已读取字幕模板', 'success');
-				this.log(`✅JSON文件读取成功，模板位置: trackIndex ${this.state.subtitle_template.track_template.trackIndex}`);
 				
 				this.state.json_file_name_current = file.name;
 				this.querySelector('.import-srt-btn').disabled = false; // 更新按钮状态
@@ -659,25 +660,29 @@ class ImportApp extends HTMLElement {
 			
 			// 获取字幕模板
 			const templateClip = this.state.subtitle_template.clip_template;
-			// 获取模板m_id
-			const baseMId = templateClip?.m_id || "1714550534688";
-			// 获取所有现有的m_id
-			const json_existing_m_id_s = new Set();
-			function traverse(obj) { 
-				if (typeof obj === 'object' && obj !== null) { 
-					if (obj.m_id) {
-						json_existing_m_id_s.add(obj.m_id);
-					}
-					for (const key in obj) {
-						traverse(obj[key]);
-					}
-				} 
-			}
-			traverse(this.state.json_result_content); 
+			// // 获取模板m_id
+			// const baseMId = templateClip?.m_id || "1714550534688";
+			// // 获取所有现有的m_id
+			// const json_existing_m_id_s = new Set();
+			// function traverse(obj) { 
+			// 	if (typeof obj === 'object' && obj !== null) { 
+			// 		if (obj.m_id) {
+			// 			json_existing_m_id_s.add(obj.m_id);
+			// 		}
+			// 		for (const key in obj) {
+			// 			traverse(obj[key]);
+			// 		}
+			// 	} 
+			// }
+			// traverse(this.state.json_result_content); 
 			
 			// 为每个SRT字幕生成clip
 			// 循环外辅助变量 iterator 用于解决m_id重复问题
-			let iterator = 0;
+			// let iterator = 0;
+
+			// 20250706 删除了m_id的生成，因为必剪会自动修复
+			let templateCaption = deepCopy(templateClip);
+			delete templateCaption.m_id;
 			for (const [index, subtitle] of this.state.srt_file_content.entries()) {
 				if (!subtitle.addable) continue;
 
@@ -694,13 +699,15 @@ class ImportApp extends HTMLElement {
 				newClip["trimOut"] = subtitle.duration;
 
 				// 生成并设置字幕m_id
-				let newId = baseMId + index + iterator;
-				while (json_existing_m_id_s.has(newId)) {
-					iterator++;
-					newId++;
-				}
-				newClip["m_id"] = newId;
-				json_existing_m_id_s.add(newClip["m_id"]);
+				// 20250706 删除了m_id的生成，因为必剪会自动修复
+
+				// let newId = baseMId + index + iterator;
+				// while (json_existing_m_id_s.has(newId)) {
+				// 	iterator++;
+				// 	newId++;
+				// }
+				// newClip["m_id"] = newId;
+				// json_existing_m_id_s.add(newClip["m_id"]);
 
 				// 字幕设置完成，添加到轨道中
 				newTrack.clips.push(newClip);
@@ -723,6 +730,10 @@ class ImportApp extends HTMLElement {
 
 			// 记录文件名以备下次检查
 			this.state.json_file_name_previous = this.state.json_file_name_current;
+
+			// 保存结果到文件，从而兼容重复生成字幕
+			this.state.json_file_content = this.state.json_result_content;
+
 		} catch (error) { 
 			this.showStatus('❌生成字幕时出错：' + error.message, 'error'); 
 			this.log('❌生成字幕错误: ' + error.message);
@@ -741,47 +752,53 @@ class ImportApp extends HTMLElement {
 
 			// 获取字幕模板
 			const templateClip = this.state.subtitle_template.clip_template;
-			// 获取模板uid
-			const baseUId = templateClip?.uid || "1750739420337";
-			// 获取所有现有的uid
-			const json_existing_uid_s = new Set();
-			function traverse_uid(obj) { 
-				if (typeof obj === 'object' && obj !== null) { 
-					if (obj.uid) {
-						json_existing_uid_s.add(obj.uid);
-					}
-					for (const key in obj) {
-						traverse_uid(obj[key]);
-					}
-				} 
-			}
-			traverse_uid(this.state.json_result_content);
-			// 获取模板idString，并提前转换为数字从而减少性能消耗
-			// 20250706 Warning，默认值1751816956445142081超出了js的Number.MAX_SAFE_INTEGER，导致精度丢失
-			// 20250706 解决方法：使用BigInt
-			const baseIdString = BigInt(templateClip?.idString || 1751816956445142081);
-			// 获取所有现有的idString
-			const json_existing_idString_s = new Set();
-			function traverse_idString(obj) {
-				if (typeof obj === 'object' && obj!== null) {
-					if (obj.idString) {
-						json_existing_idString_s.add(obj.idString);
-					}
-					for (const key in obj) {
-						traverse_idString(obj[key]);
-					}	
-				}	
-			}
-			traverse_idString(this.state.json_result_content);
+			// // 获取模板uid
+			// const baseUId = templateClip?.uid || "1750739420337";
+			// // 获取所有现有的uid
+			// const json_existing_uid_s = new Set();
+			// function traverse_uid(obj) { 
+			// 	if (typeof obj === 'object' && obj !== null) { 
+			// 		if (obj.uid) {
+			// 			json_existing_uid_s.add(obj.uid);
+			// 		}
+			// 		for (const key in obj) {
+			// 			traverse_uid(obj[key]);
+			// 		}
+			// 	} 
+			// }
+			// traverse_uid(this.state.json_result_content);
+			// // 获取模板idString，并提前转换为数字从而减少性能消耗
+			// // 20250706 Warning，默认值1751816956445142081超出了js的Number.MAX_SAFE_INTEGER，导致精度丢失
+			// // 20250706 解决方法：使用BigInt
+			// const baseIdString = BigInt(templateClip?.idString || 1751816956445142081);
+			// // 获取所有现有的idString
+			// const json_existing_idString_s = new Set();
+			// function traverse_idString(obj) {
+			// 	if (typeof obj === 'object' && obj!== null) {
+			// 		if (obj.idString) {
+			// 			json_existing_idString_s.add(obj.idString);
+			// 		}
+			// 		for (const key in obj) {
+			// 			traverse_idString(obj[key]);
+			// 		}	
+			// 	}	
+			// }
+			// traverse_idString(this.state.json_result_content);
 
 			// 为每个SRT字幕生成clip
 			// 循环外辅助变量 iterator 用于解决m_id重复问题
-			let iterator_offset_uid = 0;
-			let iterator_offset_idString = 0;
+			// let iterator_offset_uid = 0;
+			// let iterator_offset_idString = 0;
+
+			// 20250706 删除了uid和idString的生成，因为必剪会自动修复
+			let templateCaption = deepCopy(templateClip);
+			delete templateCaption["uid"];
+			delete templateCaption["idString"];
 			for (const [index, subtitle] of this.state.srt_file_content.entries()) {
 				if (!subtitle.addable) continue;
 
-				const newClip = deepCopy(templateClip);
+				// 20250706 使用templateCaption替代templateClip
+				const newClip = deepCopy(templateCaption);
 
 				// 设置字幕属性
 				newClip["assetInfo"]["content"] = subtitle.text;
@@ -790,25 +807,27 @@ class ImportApp extends HTMLElement {
 				newClip["inPoint"] = subtitle.start_time;
 				newClip["outPoint"] = subtitle.end_time;
 
-				// 生成并设置字幕uid
-				let new_uid = baseUId + index + iterator_offset_uid;
-				while (json_existing_uid_s.has(new_uid)) {
-					iterator_offset_uid++;
-					new_uid++;
-				}
-				newClip["uid"] = new_uid;
-				json_existing_uid_s.add(newClip["uid"]);
+				// // 生成并设置字幕uid
+				// 20250706 删除了uid和idString的生成，因为必剪会自动修复
+				
+				// let new_uid = baseUId + index + iterator_offset_uid;
+				// while (json_existing_uid_s.has(new_uid)) {
+				// 	iterator_offset_uid++;
+				// 	new_uid++;
+				// }
+				// newClip["uid"] = new_uid;
+				// json_existing_uid_s.add(newClip["uid"]);
 
-				// 生成并设置字幕idString
-				// 20250706 Warning，默认值1751816956445142081超出了js的Number.MAX_SAFE_INTEGER，导致精度丢失
-				// 20250706 解决方法：使用BigInt
-				let newIdString = baseIdString + BigInt(index) + BigInt(iterator_offset_idString);
-				while (json_existing_idString_s.has(String(newIdString))) {
-					iterator_offset_idString++;
-					newIdString++;	
-				}
-				newClip["idString"] = String(newIdString);
-				json_existing_idString_s.add(newClip["idString"]);
+				// // 生成并设置字幕idString
+				// // 20250706 Warning，默认值1751816956445142081超出了js的Number.MAX_SAFE_INTEGER，导致精度丢失
+				// // 20250706 解决方法：使用BigInt
+				// let newIdString = baseIdString + BigInt(index) + BigInt(iterator_offset_idString);
+				// while (json_existing_idString_s.has(String(newIdString))) {
+				// 	iterator_offset_idString++;
+				// 	newIdString++;	
+				// }
+				// newClip["idString"] = String(newIdString);
+				// json_existing_idString_s.add(newClip["idString"]);
 
 				// 字幕设置完成，添加到轨道中
 				newTrack.captions.push(newClip);
@@ -836,6 +855,9 @@ class ImportApp extends HTMLElement {
 
 			// 记录文件名以备下次检查
 			this.state.json_file_name_previous = this.state.json_file_name_current;
+
+			// 保存结果到文件，从而兼容重复生成字幕
+			this.state.json_file_content = this.state.json_result_content;
 
 		} catch (error) {
 			this.showStatus('❌生成字幕时出错：' + error.message, 'error');
