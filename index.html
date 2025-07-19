@@ -272,8 +272,8 @@ class ImportApp extends HTMLElement {
 		this.initUI();
 		// 初始化日志
 		this.log('SRT字幕导入工具');
-		this.log('Build(v0.0.0 - v3.5.4): 20250627, Author: poyakong');
-		this.log('Build(v3.6.0 - v3.7.14): 20250706, Author: poyakong');
+		this.log('Build(v0.0.0 - v3.5.5): 20250627, Author: poyakong');
+		this.log('Build(v3.6.0 - v3.7.18): 20250706, Author: poyakong');
 		this.log('✅工具启动成功');
 		this.ui.log.innerHTML += `[${(new Date()).toLocaleTimeString()}] ⚠️须知：使用之前，请务必观看教程<a href="https://www.bilibili.com/video/BV1aqK3zEEaG/" target="_blank">BV1aqK3zEEaG</a>\n`;
 	}
@@ -417,8 +417,10 @@ class ImportApp extends HTMLElement {
 							if (found) break;
 						}
 					}
-					this.showStatus('✅JSON文件读取成功！已读取字幕模板', 'success');
-					this.log(`✅JSON文件读取成功，模板位置: trackIndex ${this.state.subtitle_template.track_template.trackIndex}`);
+					if (found) {
+						this.showStatus('✅JSON文件读取成功！已读取字幕模板', 'success');
+						this.log(`✅JSON文件读取成功，模板位置: trackIndex ${this.state.subtitle_template.track_template.trackIndex}`);
+					}
 				} 
 				// 查找"程序定位模板字幕" for version_3_6_0_plus
 				else if (file.name.split('.').pop().toLowerCase() === 'bjson') {
@@ -438,8 +440,10 @@ class ImportApp extends HTMLElement {
 							if (found) break;
 						}
 					}
-					this.showStatus('✅JSON文件读取成功！已读取字幕模板', 'success');
-					this.log(`✅JSON文件读取成功，模板位置: index ${this.state.subtitle_template.track_template.index}`);
+					if (found) {
+						this.showStatus('✅JSON文件读取成功！已读取字幕模板', 'success');
+						this.log(`✅JSON文件读取成功，模板位置: index ${this.state.subtitle_template.track_template.index}`);
+					}
 				} 
 				// [error case] 兼容性错误
 				else {
