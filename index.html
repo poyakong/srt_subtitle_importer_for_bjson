@@ -664,27 +664,28 @@ class ImportApp extends HTMLElement {
 			
 			// 获取字幕模板
 			const templateClip = this.state.subtitle_template.clip_template;
-			// // 获取模板m_id
-			// const baseMId = templateClip?.m_id || "1714550534688";
-			// // 获取所有现有的m_id
-			// const json_existing_m_id_s = new Set();
-			// function traverse(obj) { 
-			// 	if (typeof obj === 'object' && obj !== null) { 
-			// 		if (obj.m_id) {
-			// 			json_existing_m_id_s.add(obj.m_id);
-			// 		}
-			// 		for (const key in obj) {
-			// 			traverse(obj[key]);
-			// 		}
-			// 	} 
-			// }
-			// traverse(this.state.json_result_content); 
-			
+
+			// 获取模板m_id
+			const baseMId = templateClip?.m_id || "1714550534688";
+			// 获取所有现有的m_id
+			const json_existing_m_id_s = new Set();
+			function traverse(obj) { 
+				if (typeof obj === 'object' && obj !== null) { 
+					if (obj.m_id) {
+						json_existing_m_id_s.add(obj.m_id);
+					}
+					for (const key in obj) {
+						traverse(obj[key]);
+					}
+				} 
+			}
+			traverse(this.state.json_result_content); 
 			// 为每个SRT字幕生成clip
 			// 循环外辅助变量 iterator 用于解决m_id重复问题
-			// let iterator = 0;
+			let iterator = 0;
 
 			// 20250706 删除了m_id的生成，因为必剪会自动修复
+			// 20250729 恢复了m_id的生成，因为必剪自动生成的m_id有冲突
 			let templateCaption = deepCopy(templateClip);
 			delete templateCaption.m_id;
 			for (const [index, subtitle] of this.state.srt_file_content.entries()) {
@@ -704,14 +705,14 @@ class ImportApp extends HTMLElement {
 
 				// 生成并设置字幕m_id
 				// 20250706 删除了m_id的生成，因为必剪会自动修复
-
-				// let newId = baseMId + index + iterator;
-				// while (json_existing_m_id_s.has(newId)) {
-				// 	iterator++;
-				// 	newId++;
-				// }
-				// newClip["m_id"] = newId;
-				// json_existing_m_id_s.add(newClip["m_id"]);
+				// 20250729 恢复了m_id的生成，因为必剪自动生成的m_id有冲突
+				let newId = baseMId + index + iterator;
+				while (json_existing_m_id_s.has(newId)) {
+					iterator++;
+					newId++;
+				}
+				newClip["m_id"] = newId;
+				json_existing_m_id_s.add(newClip["m_id"]);
 
 				// 字幕设置完成，添加到轨道中
 				newTrack.clips.push(newClip);
