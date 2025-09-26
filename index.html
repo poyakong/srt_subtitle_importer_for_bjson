@@ -1353,5 +1353,15 @@ window.onload = () => {
 	console.log("Web Components Initialized.");
 };
 </script>
+<!-- GoatCounter，注意要在渲染结束后加载，否则会阻塞默认渲染 -->
+<script>
+	window.addEventListener("load", function() {
+	  var s = document.createElement("script");
+	  s.src = "https://gc.zgo.at/count.js";
+	  s.async = true;
+	  s.setAttribute("data-goatcounter", "https://poyakong-srt-subtitle-importer-for-bjson.goatcounter.com/count");
+	  document.body.appendChild(s);
+	});
+</script>
 </body>
 </html>
